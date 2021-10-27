@@ -31,3 +31,11 @@ export function getPgConnectionString () {
 
   return connectionString
 }
+
+export function getSslState () {
+  if (process.env.ENV === 'staging' || process.env.ENV === 'production') {
+    return true
+  }
+
+  return false
+}

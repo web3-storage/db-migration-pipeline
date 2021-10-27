@@ -10,10 +10,10 @@ const { Client } = pg
 
 import { customFaunaDump } from '../lib/fauna-dump.js'
 import { postgresIngest } from "../lib/postgres-ingest.js"
-import { getFaunaKey, getPgConnectionString } from "./utils.js"
+import { getFaunaKey, getPgConnectionString, getSslState } from "./utils.js"
 import { dataLayers } from '../lib/protocol.js'
 
-async function dataMigrationPipeline (faunaKey, outputPath, connectionString, { isPartialUpdate = false } = {}) {
+async function dataMigrationPipeline (faunaKey, outputPath, connectionString, { isPartialUpdate = false, ssl = false } = {}) {
   // Get first collections layer fauna dump
   console.log('dump', dataLayers[0])
   const initialTs = await customFaunaDump(faunaKey, outputPath, dataLayers[0].map(dl => dl.fauna))
@@ -23,14 +23,14 @@ async function dataMigrationPipeline (faunaKey, outputPath, connectionString, { 
     console.log('ingest', dataLayers[i].map(dl => dl.postgres))
     console.log('dump', dataLayers[i + 1].map(dl => dl.fauna))
     await Promise.all([
-      postgresIngest(connectionString, outputPath, dataLayers[i].map(dl => dl.postgres), { isPartialUpdate }),
+      postgresIngest(connectionString, outputPath, dataLayers[i].map(dl => dl.postgres), { isPartialUpdate, ssl }),
       customFaunaDump(faunaKey, outputPath, dataLayers[i + 1].map(dl => dl.fauna))
     ])
   }
 
   // Ingest last collections layer
   console.log('ingest', dataLayers[dataLayers.length - 1].map(dl => dl.postgres))
-  await postgresIngest(connectionString, outputPath, dataLayers[dataLayers.length - 1].map(dl => dl.postgres), { isPartialUpdate })
+  await postgresIngest(connectionString, outputPath, dataLayers[dataLayers.length - 1].map(dl => dl.postgres), { isPartialUpdate, ssl })
 
   return initialTs
 }
@@ -41,10 +41,11 @@ async function dataMigrationPipeline (faunaKey, outputPath, connectionString, { 
 export async function fullMigrationCmd () {
   const faunaKey = getFaunaKey()
   const connectionString = getPgConnectionString()
+  const ssl = getSslState()
   const outputPath = `${os.tmpdir()}/${(parseInt(String(Math.random() * 1e9), 10)).toString() + Date.now()}`
 
   console.log('output path', outputPath)
-  const initialTs = await dataMigrationPipeline(faunaKey, outputPath, connectionString)
+  const initialTs = await dataMigrationPipeline(faunaKey, outputPath, connectionString, { ssl })
 
   // Teardown fauna dump
   await fs.promises.rm(outputPath, { recursive: true, force: true })
@@ -57,6 +58,7 @@ export async function fullMigrationCmd () {
 export async function partialMigrationCmd (startTs) {
   const faunaKey = getFaunaKey()
   const connectionString = getPgConnectionString()
+  const ssl = getSslState()
   const outputPath = `${os.tmpdir()}/${(parseInt(String(Math.random() * 1e9), 10)).toString() + Date.now()}`
 
   const client = await retry(
@@ -74,7 +76,7 @@ export async function partialMigrationCmd (startTs) {
   })
   await client.query(tablesSql)
 
-  const initialTs = await dataMigrationPipeline(faunaKey, outputPath, connectionString, { isPartialUpdate: true })
+  const initialTs = await dataMigrationPipeline(faunaKey, outputPath, connectionString, { isPartialUpdate: true, ssl })
 
   // Upsert partial data
   console.log('upsert data')
