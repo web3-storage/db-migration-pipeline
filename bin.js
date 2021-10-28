@@ -17,6 +17,7 @@ dotenv.config({
 
 prog
   .option('--env', 'Environment to perform the operation', 'dev')
+  .option('--clean', 'Clean temporary files created', true)
 
 prog
   .command('full')

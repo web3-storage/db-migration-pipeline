@@ -38,7 +38,7 @@ async function dataMigrationPipeline (faunaKey, outputPath, connectionString, { 
 /**
  * @return {Promise<void>}
  */
-export async function fullMigrationCmd () {
+export async function fullMigrationCmd (options = {}) {
   const faunaKey = getFaunaKey()
   const connectionString = getPgConnectionString()
   const ssl = getSslState()
@@ -48,14 +48,16 @@ export async function fullMigrationCmd () {
   const initialTs = await dataMigrationPipeline(faunaKey, outputPath, connectionString, { ssl })
 
   // Teardown fauna dump
-  await fs.promises.rm(outputPath, { recursive: true, force: true })
+  if (options.clean) {
+    await fs.promises.rm(outputPath, { recursive: true, force: true })
+  }
   console.log('done with initial TS of:', initialTs)
 }
 
 /**
  * @param {string} startTs
  */
-export async function partialMigrationCmd (startTs) {
+export async function partialMigrationCmd (startTs, options) {
   const faunaKey = getFaunaKey()
   const connectionString = getPgConnectionString()
   const ssl = getSslState()
@@ -88,6 +90,10 @@ export async function partialMigrationCmd (startTs) {
   // Close SQL client
   await client.end()
 
-  await fs.promises.rm(outputPath, { recursive: true, force: true })
+  // Teardown fauna dump
+  if (options.clean) {
+    await fs.promises.rm(outputPath, { recursive: true, force: true })
+  }
+
   console.log('done with initial TS of:', initialTs)
 }
