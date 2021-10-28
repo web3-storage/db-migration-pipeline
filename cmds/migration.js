@@ -4,6 +4,8 @@ import pg from 'pg'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import retry from 'p-retry'
+import pDefer from 'p-defer'
+import pQueue from 'p-queue'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const { Client } = pg
@@ -12,28 +14,6 @@ import { customFaunaDump } from '../lib/fauna-dump.js'
 import { postgresIngest } from "../lib/postgres-ingest.js"
 import { getFaunaKey, getPgConnectionString, getSslState } from "./utils.js"
 import { dataLayers } from '../lib/protocol.js'
-
-async function dataMigrationPipeline (faunaKey, outputPath, connectionString, { isPartialUpdate = false, ssl = false } = {}) {
-  // Get first collections layer fauna dump
-  console.log('dump', dataLayers[0])
-  const initialTs = await customFaunaDump(faunaKey, outputPath, dataLayers[0].map(dl => dl.fauna))
-
-  // Iterate over all data layers
-  for (let i = 0; i < dataLayers.length - 1; i++) {
-    console.log('ingest', dataLayers[i].map(dl => dl.postgres))
-    console.log('dump', dataLayers[i + 1].map(dl => dl.fauna))
-    await Promise.all([
-      postgresIngest(connectionString, outputPath, dataLayers[i].map(dl => dl.postgres), { isPartialUpdate, ssl }),
-      customFaunaDump(faunaKey, outputPath, dataLayers[i + 1].map(dl => dl.fauna))
-    ])
-  }
-
-  // Ingest last collections layer
-  console.log('ingest', dataLayers[dataLayers.length - 1].map(dl => dl.postgres))
-  await postgresIngest(connectionString, outputPath, dataLayers[dataLayers.length - 1].map(dl => dl.postgres), { isPartialUpdate, ssl })
-
-  return initialTs
-}
 
 /**
  * @return {Promise<void>}
@@ -96,4 +76,115 @@ export async function partialMigrationCmd (startTs, options) {
   }
 
   console.log('done with initial TS of:', initialTs)
+}
+
+/**
+ * @typedef {Object} DataLayer
+ * @property {string} postgres
+ * @property {string} fauna
+ * @property {Array<string>} blockers
+ */
+
+/**
+ * @typedef {Object} DataLayerPromisified
+ * @property {string} postgres
+ * @property {string} fauna
+ * @property {Array<string>} blockers
+ * @property {Array<Record<string, pDefer>>} dumpBlockerPromises
+ * @property {Array<Record<string, pDefer>>} ingestBlockerPromises
+ */
+
+async function dataMigrationPipeline (faunaKey, outputPath, connectionString, { isPartialUpdate = false, ssl = false } = {}) {
+  const createBlockerPromises = (blockers) => {
+    const blockerPromises = {}
+    blockers.forEach(blocker => blockerPromises[blocker] = new pDefer())
+    return blockerPromises
+  }
+  const dataLayersPromisified = dataLayers.map(layer => ({
+    ...layer,
+    dumpBlockerPromises: createBlockerPromises(layer.dumpBlockers),
+    ingestBlockerPromises: createBlockerPromises(layer.ingestBlockers)
+  }))
+
+  const dumpFn = async (layer) => {
+    console.log('start dump', layer.fauna)
+    await customFaunaDump(faunaKey, outputPath, [layer.fauna])
+    setDumpLayerReady(layer, dataLayersPromisified)
+    console.log('end dump', layer.fauna)
+  }
+
+  const dumpQueue = new pQueue({ concurrency: 3 })
+  const dumpPromiseAll = dumpQueue.addAll(Array.from(
+    { length: dataLayers.length }, (_, i) => () => dumpFn(dataLayers[i])
+  ))
+
+  const ingestFn = async (layer) => {
+    layer.dumpBlockers.length && console.log(`ingest for ${layer.postgres} waiting for dump of ${layer.dumpBlockers.concat(',')}`)
+    await isDumpLayerBlockersReady(layer, dataLayersPromisified)
+    layer.ingestBlockers.length && console.log(`ingest for ${layer.postgres} waiting for ingest of ${layer.ingestBlockers.concat(',')}`)
+    await isIngestLayerBlockersReady(layer, dataLayersPromisified)
+    console.log('start ingest', layer.postgres)
+    await postgresIngest(connectionString, outputPath, [layer.postgres], { isPartialUpdate, ssl })
+    setIngestLayerReady(layer, dataLayersPromisified)
+    console.log('end ingest', layer.postgres)
+  }
+
+  const ingestQueue = new pQueue({ concurrency: 3 })
+  const ingestPromiseAll = ingestQueue.addAll(Array.from(
+    { length: dataLayers.length }, (_, i) => () => ingestFn(dataLayers[i])
+  ))
+
+  const [dumpRes] = await Promise.all([
+    dumpPromiseAll,
+    ingestPromiseAll
+  ])
+
+  // TODO: dumpRes should return ts of first dump
+  return 'ts'
+}
+
+/**
+ * @param {DataLayer} dLayer
+ * @param {Array<DataLayerPromisified>} dataLayersPromisified
+ * @return {Promise<void>}
+ */
+async function isDumpLayerBlockersReady (dLayer, dataLayersPromisified) {
+  const layer = dataLayersPromisified.find(layer => layer.postgres === dLayer.postgres)
+  await Promise.all(Object.values(layer.dumpBlockerPromises).map(d => d.promise))
+}
+
+/**
+ * @param {DataLayer} dLayer
+ * @param {Array<DataLayerPromisified>} dataLayersPromisified
+ * @return {Promise<void>}
+ */
+async function isIngestLayerBlockersReady (dLayer, dataLayersPromisified) {
+  const layer = dataLayersPromisified.find(layer => layer.postgres === dLayer.postgres)
+  await Promise.all(Object.values(layer.ingestBlockerPromises).map(d => d.promise))
+}
+
+/**
+ * @param {DataLayer} dLayer
+ * @param {Array<DataLayerPromisified>} dataLayersPromisified
+ */
+function setDumpLayerReady (dLayer, dataLayersPromisified) {
+  dataLayersPromisified.forEach(layer => {
+    const blockerPromise = layer.dumpBlockerPromises[dLayer.postgres]
+    if (blockerPromise) {
+      blockerPromise.resolve()
+    }
+  })
+}
+
+/**
+ * @param {DataLayer} dLayer
+ * @param {Array<DataLayerPromisified>} dataLayersPromisified
+ */
+function setIngestLayerReady (dLayer, dataLayersPromisified) {
+  dataLayersPromisified.forEach(layer => {
+    const blockerPromise = layer.ingestBlockerPromises[dLayer.postgres]
+    if (blockerPromise) {
+      blockerPromise.resolve()
+    }
+  })
 }
