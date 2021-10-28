@@ -27,4 +27,20 @@ PRODUCTION_PG_CONNECTION=<CONNECTION_STRING>
 
 ## Usage
 
-TODO
+### Full Migration
+
+```sh
+node bin.js full
+```
+
+### Partial Migration
+
+```sh
+node bin.js partial <timestamp>
+```
+
+### Full Fauna Dump
+
+```sh
+node bin.js fauna-dump
+```
