@@ -45,7 +45,12 @@ export async function partialMigrationCmd (startTs, options) {
 
   const client = await retry(
     async () => {
-      const c = new Client({ connectionString })
+      const c = new Client({
+        connectionString,
+        ssl: ssl && {
+          rejectUnauthorized: false
+        }
+      })
       await c.connect()
       return c
     },
@@ -53,6 +58,7 @@ export async function partialMigrationCmd (startTs, options) {
   )
 
   // Create import tables
+  console.log('create temporary tables')
   const tablesSql = await fs.promises.readFile(path.join(__dirname, '../postgres/import-tables.sql'), {
     encoding: 'utf-8'
   })
