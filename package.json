@@ -12,6 +12,8 @@
   "dependencies": {
     "dotenv": "^10.0.0",
     "fauna-dumpify": "^1.1.2",
+    "p-defer": "^4.0.0",
+    "p-queue": "^7.1.0",
     "p-retry": "^4.6.1",
     "pg": "^8.7.1",
     "pg-copy-streams": "^6.0.2",
