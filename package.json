@@ -9,8 +9,13 @@
   "private": true,
   "author": "Vasco Santos",
   "license": "(Apache-2.0 AND MIT)",
-  "devDependencies": {
+  "dependencies": {
     "dotenv": "^10.0.0",
-    "sade": "^1.7.4"
+    "fauna-dumpify": "^1.1.2",
+    "p-retry": "^4.6.1",
+    "pg": "^8.7.1",
+    "pg-copy-streams": "^6.0.2",
+    "sade": "^1.7.4",
+    "snake-case": "^3.0.4"
   }
 }

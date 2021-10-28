@@ -4,6 +4,7 @@ import dotenv from 'dotenv'
 import sade from 'sade'
 import { fileURLToPath } from 'url'
 
+import { faunaDumpCmd } from './cmds/fauna.js'
 import { fullMigrationCmd, partialMigrationCmd } from './cmds/migration.js'
 import { validateCmd } from './cmds/validate.js'
 
@@ -27,5 +28,8 @@ prog
   .command('validate')
   .describe('Validate Database migration')
   .action(validateCmd)
+  .command('fauna-dump')
+  .describe('complete fauna dump')
+  .action(faunaDumpCmd)
 
 prog.parse(process.argv)
