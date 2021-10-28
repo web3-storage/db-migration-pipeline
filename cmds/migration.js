@@ -6,6 +6,7 @@ import { fileURLToPath } from 'url'
 import retry from 'p-retry'
 import pDefer from 'p-defer'
 import pQueue from 'p-queue'
+import ora from 'ora'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const { Client } = pg
@@ -113,10 +114,10 @@ async function dataMigrationPipeline (faunaKey, outputPath, connectionString, { 
   }))
 
   const dumpFn = async (layer) => {
-    console.log('start dump', layer.fauna)
-    await customFaunaDump(faunaKey, outputPath, [layer.fauna])
+    const spinner = ora(`Dumping ${layer.fauna}`)
+    await customFaunaDump(faunaKey, outputPath, [layer.fauna], (message) => spinner.info(message))
     setDumpLayerReady(layer, dataLayersPromisified)
-    console.log('end dump', layer.fauna)
+    spinner.stopAndPersist()
   }
 
   const dumpQueue = new pQueue({ concurrency: 3 })
