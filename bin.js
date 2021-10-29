@@ -28,6 +28,8 @@ prog
   .action(partialMigrationCmd)
   .command('validate')
   .describe('Validate Database migration')
+  .option('-e, --end-ts', 'Query Interval end timestamp (milliseconds elapsed since the UNIX epoch)')
+  .option('-s, --start-ts', 'Query Interval start timestamp (milliseconds elapsed since the UNIX epoch)')
   .action(validateCmd)
   .command('fauna-dump')
   .describe('complete fauna dump')
