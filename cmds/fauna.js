@@ -15,7 +15,7 @@ export async function faunaDumpCmd () {
 
   const dumpFn = async (collection) => {
     const spinner = ora(`Dumping ${collection}`)
-    await customFaunaDump(faunaKey, outputPath, [collection], (message) => spinner.info(message))
+    await customFaunaDump(faunaKey, outputPath, { collections: [collection], onCollectionProgress: (message) => spinner.info(message) })
     spinner.stopAndPersist()
   }
 

@@ -24,6 +24,7 @@ prog
   .describe('Full Database migration')
   .action(fullMigrationCmd)
   .command('partial <startTs>')
+  .option('-e, --end-ts', 'Date Interval for the end of the data to be migrated')
   .describe('Partial Database migration by updating DB with new data')
   .action(partialMigrationCmd)
   .command('validate')
