@@ -19,7 +19,7 @@ export async function faunaDumpCmd () {
     spinner.stopAndPersist()
   }
 
-  const dumpQueue = new pQueue({ concurrency: 3 })
+  const dumpQueue = new pQueue({ concurrency: 2 })
   const dumpRes = await dumpQueue.addAll(Array.from(
     { length: collections.length }, (_, i) => () => dumpFn(collections[i])
   ))
