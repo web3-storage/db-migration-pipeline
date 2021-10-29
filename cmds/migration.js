@@ -65,7 +65,7 @@ export async function partialMigrationCmd (startTs, options) {
   })
   await client.query(tablesSql)
 
-  const initialTs = await dataMigrationPipeline(faunaKey, outputPath, connectionString, { isPartialUpdate: true, ssl })
+  const initialTs = await dataMigrationPipeline(faunaKey, outputPath, connectionString, { isPartialUpdate: true, startTime: startTs, ssl })
 
   // Upsert partial data
   console.log('upsert data')
@@ -101,7 +101,7 @@ export async function partialMigrationCmd (startTs, options) {
  * @property {Array<Record<string, pDefer>>} ingestBlockerPromises
  */
 
-async function dataMigrationPipeline (faunaKey, outputPath, connectionString, { isPartialUpdate = false, ssl = false } = {}) {
+async function dataMigrationPipeline (faunaKey, outputPath, connectionString, { isPartialUpdate = false, startTime, ssl = false } = {}) {
   const createBlockerPromises = (blockers) => {
     const blockerPromises = {}
     blockers.forEach(blocker => blockerPromises[blocker] = new pDefer())
@@ -115,7 +115,11 @@ async function dataMigrationPipeline (faunaKey, outputPath, connectionString, { 
 
   const dumpFn = async (layer) => {
     const spinner = ora(`Dumping ${layer.fauna}`)
-    await customFaunaDump(faunaKey, outputPath, [layer.fauna], (message) => spinner.info(message))
+    await customFaunaDump(faunaKey, outputPath, {
+      collections: [layer.fauna],
+      onCollectionProgress: (message) => spinner.info(message),
+      startTime,
+    })
     setDumpLayerReady(layer, dataLayersPromisified)
     spinner.stopAndPersist()
   }
