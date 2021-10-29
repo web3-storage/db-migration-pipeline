@@ -65,7 +65,8 @@ export async function partialMigrationCmd (startTs, options) {
   })
   await client.query(tablesSql)
 
-  const initialTs = await dataMigrationPipeline(faunaKey, outputPath, connectionString, { isPartialUpdate: true, startTime: startTs, ssl })
+  const endTime = options['end-ts']
+  const initialTs = await dataMigrationPipeline(faunaKey, outputPath, connectionString, { isPartialUpdate: true, startTime: startTs, endTime, ssl })
 
   // Upsert partial data
   console.log('upsert data')
