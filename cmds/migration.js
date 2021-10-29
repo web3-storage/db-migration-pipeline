@@ -120,20 +120,22 @@ async function dataMigrationPipeline (faunaKey, outputPath, connectionString, { 
     spinner.stopAndPersist()
   }
 
-  const dumpQueue = new pQueue({ concurrency: 3 })
+  const dumpQueue = new pQueue({ concurrency: 2 })
   const dumpPromiseAll = dumpQueue.addAll(Array.from(
     { length: dataLayers.length }, (_, i) => () => dumpFn(dataLayers[i])
   ))
 
   const ingestFn = async (layer) => {
-    layer.dumpBlockers.length && console.log(`ingest for ${layer.postgres} waiting for dump of ${layer.dumpBlockers.concat(',')}`)
+    const spinnerWaitDump = ora(`ingest for ${layer.postgres} waiting for dump of ${layer.dumpBlockers.concat(',')}`)
     await isDumpLayerBlockersReady(layer, dataLayersPromisified)
-    layer.ingestBlockers.length && console.log(`ingest for ${layer.postgres} waiting for ingest of ${layer.ingestBlockers.concat(',')}`)
+    spinnerWaitDump.stop()
+    const spinnerWaitIngest = ora(`ingest for ${layer.postgres} waiting for ingest of ${layer.ingestBlockers.concat(',')}`)
     await isIngestLayerBlockersReady(layer, dataLayersPromisified)
-    console.log('start ingest', layer.postgres)
+    spinnerWaitIngest.stop()
+    const spinnerIngest = ora(`start ingest ${layer.postgres}`)
     await postgresIngest(connectionString, outputPath, [layer.postgres], { isPartialUpdate, ssl })
     setIngestLayerReady(layer, dataLayersPromisified)
-    console.log('end ingest', layer.postgres)
+    spinnerIngest.stopAndPersist()
   }
 
   const ingestQueue = new pQueue({ concurrency: 3 })
