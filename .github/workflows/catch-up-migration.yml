@@ -1,0 +1,32 @@
+name: Catch up Migration
+
+on:
+  schedule:
+    - cron: '*/* 6 * * *'
+
+jobs:
+  update:
+    name: Catch up migration
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        env: ['production']
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Setup node
+        uses: actions/setup-node@v1
+        with:
+          node-version: 16
+      - name: Install dependencies
+        uses: bahmutov/npm-install@v1
+
+      - name: Run job
+        env:
+          DEBUG: '*'
+          ENV: ${{ matrix.env }}
+          FAUNA_KEY: ${{ secrets.PROD_FAUNA_KEY }}
+          PG_CONNECTION: ${{ secrets.PROD_PG_CONNECTION }}
+          WEB3_STORAGE: ${{ secrets.PROD_WEB3_STORAGE }}
+        run: node jobs/catch-up-migration.js

@@ -44,6 +44,7 @@ export async function partialMigrationCmd (startTs, options) {
   const ssl = getSslState()
   const outputPath = `${os.tmpdir()}/${(parseInt(String(Math.random() * 1e9), 10)).toString() + Date.now()}`
 
+  console.log('output path', outputPath)
   const client = await retry(
     async () => {
       const c = new Client({
@@ -84,6 +85,10 @@ export async function partialMigrationCmd (startTs, options) {
   }
 
   console.log('done with initial TS of:', initialTs)
+
+  return {
+    outputPath
+  }
 }
 
 /**
@@ -102,7 +107,7 @@ export async function partialMigrationCmd (startTs, options) {
  * @property {Array<Record<string, pDefer>>} ingestBlockerPromises
  */
 
-async function dataMigrationPipeline (faunaKey, outputPath, connectionString, { isPartialUpdate = false, startTime, ssl = false } = {}) {
+async function dataMigrationPipeline (faunaKey, outputPath, connectionString, { isPartialUpdate = false, ssl = false, startTime, endTime } = {}) {
   const createBlockerPromises = (blockers) => {
     const blockerPromises = {}
     blockers.forEach(blocker => blockerPromises[blocker] = new pDefer())
@@ -114,12 +119,22 @@ async function dataMigrationPipeline (faunaKey, outputPath, connectionString, { 
     ingestBlockerPromises: createBlockerPromises(layer.ingestBlockers)
   }))
 
+  if (!endTime) {
+    endTime = new Date()
+  }
+  console.log('--------------------------------------')
+  console.log('start time', startTime)
+  console.log('end time:', endTime.toISOString())
+  console.log('end time (epoch ms):', endTime.getTime())
+  console.log('--------------------------------------')
+
   const dumpFn = async (layer) => {
     const spinner = ora(`Dumping ${layer.fauna}`)
     await customFaunaDump(faunaKey, outputPath, {
       collections: [layer.fauna],
       onCollectionProgress: (message) => spinner.info(message),
       startTime,
+      endTime
     })
     setDumpLayerReady(layer, dataLayersPromisified)
     spinner.stopAndPersist()
@@ -148,13 +163,10 @@ async function dataMigrationPipeline (faunaKey, outputPath, connectionString, { 
     { length: dataLayers.length }, (_, i) => () => ingestFn(dataLayers[i])
   ))
 
-  const [dumpRes] = await Promise.all([
+  await Promise.all([
     dumpPromiseAll,
     ingestPromiseAll
   ])
-
-  // TODO: dumpRes should return ts of first dump
-  return 'ts'
 }
 
 /**

@@ -133,7 +133,7 @@ async function fetchPartialFaunaMetrics (endTs, startTs) {
 }
 
 async function getPartialMetrics (client, query, endTs, startTs) {
-  const size = 10000
+  const size = 1200
   let after
   let total = 0
 

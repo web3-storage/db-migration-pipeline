@@ -13,17 +13,24 @@ export async function faunaDumpCmd () {
 
   const collections = ['User', 'Content', 'PinLocation', 'AuthToken', 'Pin', 'PinRequest', 'Upload', 'PinSyncRequest', 'Backup']
 
+  const endTime = new Date()
+  console.log('--------------------------------------')
+  console.log('end time:', endTime)
+  console.log('end time (epoch ms):', new Date(endTime).getTime())
+  console.log('--------------------------------------')
+
   const dumpFn = async (collection) => {
     const spinner = ora(`Dumping ${collection}`)
-    await customFaunaDump(faunaKey, outputPath, { collections: [collection], onCollectionProgress: (message) => spinner.info(message) })
+    await customFaunaDump(faunaKey, outputPath, {
+      collections: [collection],
+      onCollectionProgress: (message) => spinner.info(message),
+      endTime
+    })
     spinner.stopAndPersist()
   }
 
-  const dumpQueue = new pQueue({ concurrency: 2 })
-  const dumpRes = await dumpQueue.addAll(Array.from(
+  const dumpQueue = new pQueue({ concurrency: 1 })
+  await dumpQueue.addAll(Array.from(
     { length: collections.length }, (_, i) => () => dumpFn(collections[i])
   ))
-
-  // TODO: dumpRes should return ts of first dump
-  return 'ts'
 }
