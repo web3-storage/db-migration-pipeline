@@ -1,8 +1,8 @@
-name: Catch up Migration
+name: Cron Catch up Migration
 
 on:
   schedule:
-    - cron:  '*/* 6 * * *'
+    - cron: '*/300 * * * *'
 
 jobs:
   update:
