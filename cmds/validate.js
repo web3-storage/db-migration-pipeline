@@ -55,11 +55,13 @@ async function fetchPostgresMetrics (endTs, startTs) {
 
   const [
     { rows: [{ count: users }] },
+    { rows: [{ count: cids }] },
     { rows: [{ count: uploads }] },
     { rows: [{ count: pins }] },
     { rows: [{ sum: contentBytes }] }
   ] = await Promise.all([
     client.query(getCountQuery('user', endTs)),
+    client.query(getCountQuery('content', endTs)),
     client.query(getCountQuery('upload', endTs)),
     client.query(getCountQuery('pin', endTs)),
     client.query(getSumQuery('content', 'dag_size', endTs))
@@ -71,6 +73,7 @@ async function fetchPostgresMetrics (endTs, startTs) {
     updated: endTs,
     data: {
       users: Number(users),
+      cids: Number(cids),
       uploads: Number(uploads),
       pins: Number(pins),
       contentBytes: Number(contentBytes)
@@ -82,8 +85,8 @@ async function fetchPartialFaunaMetrics (endTs, startTs) {
   const faunaKey = getFaunaKey()
   const client = new faunadb.Client({ secret: faunaKey })
 
-  const countQueries = ['functions/countUsers', 'functions/countUploads', 'functions/countPins', 'functions/sumContentDagSize']
-  const [users, uploads, pins, contentBytes] = await Promise.all([
+  const countQueries = ['functions/countUsers', 'functions/countContent', 'functions/countUploads', 'functions/countPins', 'functions/sumContentDagSize']
+  const [users, cids, uploads, pins, contentBytes] = await Promise.all([
     ...countQueries.map(query => getPartialMetrics(client, query, endTs, startTs))
   ])
 
@@ -91,6 +94,7 @@ async function fetchPartialFaunaMetrics (endTs, startTs) {
     updated: endTs,
     data: {
       users,
+      cids,
       uploads,
       pins,
       contentBytes
@@ -122,6 +126,7 @@ async function fetchFullFaunaMetrics () {
   const [
     { data: users },
     { data: uplods },
+    { data: cids },
     { data: pins },
     { data: contentBytes }
   ] = await Promise.all(faunaMetricsIds.map(id => client.query(
@@ -133,6 +138,7 @@ async function fetchFullFaunaMetrics () {
     updated: users.updated.value,
     data: {
       users: users.value,
+      cids: cids.value,
       uploads: uplods.value,
       pins: pins.value,
       contentBytes: contentBytes.value
@@ -140,7 +146,7 @@ async function fetchFullFaunaMetrics () {
   }
 }
 
-const faunaMetricsIds = ['users_total', 'uploads_total', 'pins_total', 'content_bytes_total']
+const faunaMetricsIds = ['users_total', 'content_total', 'uploads_total', 'pins_total', 'content_bytes_total']
 
 const getCountQuery = (table, endTs) => ({
   text: `
