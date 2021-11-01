@@ -26,8 +26,7 @@ export function getPgConnectionString () {
   }
 
   if (!connectionString) {
-    // throw new Error('Environment variables for ENV and/or PG_CONNECTION are not set')
-    connectionString = process.env.DEV_PG_CONNECTION
+    throw new Error('Environment variables for ENV and/or PG_CONNECTION are not set')
   }
 
   return connectionString
