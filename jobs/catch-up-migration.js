@@ -6,6 +6,7 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import { Web3Storage, getFilesFromPath } from 'web3.storage'
 
+import { validateCmd } from '../cmds/validate.js'
 import { partialMigrationCmd } from '../cmds/migration.js'
 import { getPgConnectionString, getSslState } from "../cmds/utils.js"
 
@@ -57,14 +58,16 @@ async function main () {
   })
   console.log('cid', cid)
 
+  // Insert migration metadata
+  await insertMigrationMetadata(client, cid, duration, startTs, endTs.toISOString())
+
   await Promise.all([
-    // Insert migration metadata
-    insertMigrationMetadata(client, cid, duration, startTs, endTs.toISOString()),
+    // Run Validation
+    validateCmd(),
     // Clean files
     fs.promises.rm(outputPath, { recursive: true, force: true }),
+    client.end()
   ])
-
-  await client.end()
 }
 
 // Read Postgres migration table latest table if existent
