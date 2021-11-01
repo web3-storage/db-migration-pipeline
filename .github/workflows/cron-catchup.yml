@@ -1,4 +1,4 @@
-name: Cron Catchup Migration
+name: Catchup Migration
 
 on:
   schedule:
