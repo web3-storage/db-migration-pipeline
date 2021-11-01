@@ -2,7 +2,7 @@ name: Catchup Migration
 
 on:
   schedule:
-    - cron: '*/10 * * * *'
+    - cron: '*/300 * * * *'
 
 jobs:
   update:

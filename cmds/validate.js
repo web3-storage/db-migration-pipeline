@@ -7,7 +7,7 @@ import { getFaunaKey, getPgConnectionString, getSslState } from "./utils.js"
 const { Client } = pg
 const q = faunadb.query
 
-export async function validateCmd (opts) {
+export async function validateCmd (opts = {}) {
   const startTs = opts['start-ts'] ? new Date(opts['start-ts']).toISOString() :
     new Date(2010, 1, 1).toISOString()
   let reportedFaunaMetrics
