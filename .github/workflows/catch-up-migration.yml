@@ -2,7 +2,7 @@ name: Cron Catch up Migration
 
 on:
   schedule:
-    - cron: '*/300 * * * *'
+    - cron: '*/10 * * * *'
 
 jobs:
   update:
