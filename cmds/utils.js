@@ -16,7 +16,6 @@ export function getFaunaKey () {
 }
 
 export function getPgConnectionString () {
-  console.log('env', process.env)
   let connectionString
   if (process.env.ENV === 'staging') {
     connectionString = process.env.STAGING_PG_CONNECTION
@@ -27,7 +26,8 @@ export function getPgConnectionString () {
   }
 
   if (!connectionString) {
-    throw new Error('Environment variables for ENV and/or PG_CONNECTION are not set')
+    // throw new Error('Environment variables for ENV and/or PG_CONNECTION are not set')
+    connectionString = process.env.DEV_PG_CONNECTION
   }
 
   return connectionString
