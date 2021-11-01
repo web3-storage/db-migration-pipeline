@@ -25,8 +25,8 @@ jobs:
       - name: Run job
         env:
           DEBUG: '*'
-          ENV: ${{ matrix.env }}
-          FAUNA_KEY: ${{ secrets.PROD_FAUNA_KEY }}
-          PG_CONNECTION: ${{ secrets.PROD_PG_CONNECTION }}
+          ENV: ${{ secrets.env }}
+          PRODUCTION_FAUNA_KEY: ${{ secrets.PROD_FAUNA_KEY }}
+          PRODUCTION_PG_CONNECTION: ${{ secrets.PROD_PG_CONNECTION }}
           WEB3_STORAGE: ${{ secrets.PROD_WEB3_STORAGE }}
         run: node jobs/catch-up-migration.js

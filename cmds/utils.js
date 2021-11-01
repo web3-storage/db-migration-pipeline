@@ -16,6 +16,7 @@ export function getFaunaKey () {
 }
 
 export function getPgConnectionString () {
+  console.log('env', process.env)
   let connectionString
   if (process.env.ENV === 'staging') {
     connectionString = process.env.STAGING_PG_CONNECTION
