@@ -1,7 +1,9 @@
 import faunadb from 'faunadb'
+import { gql } from 'graphql-request'
 import retry from 'p-retry'
 import pg from 'pg'
 import ora from 'ora'
+
 import { getFaunaKey, getPgConnectionString, getSslState } from "./utils.js"
 
 const { Client } = pg
@@ -10,25 +12,40 @@ const q = faunadb.query
 export async function validateCmd (opts = {}) {
   const startTs = opts['start-ts'] ? new Date(opts['start-ts']).toISOString() :
     new Date(2010, 1, 1).toISOString()
-  let reportedFaunaMetrics
 
-  const spinnerPostgres = ora('fetching postgres metrics')
-  const postgresMetrics = await fetchPostgresMetrics(new Date().toISOString(), startTs)
-  spinnerPostgres.stopAndPersist()
-
+  let [postgresMetrics] = await Promise.all([
+    (async () => {
+      const spinnerPostgres = ora('fetching postgres metrics')
+      const postgresMetrics = await fetchPostgresMetrics(new Date().toISOString(), startTs)
+      spinnerPostgres.stopAndPersist()
+      return postgresMetrics
+    })(),
+    (async () => {
+      const spinnerUpdateMetrics = ora('updating fauna metrics')
+      // await updateMetrics()
+      spinnerUpdateMetrics.stopAndPersist()
+    })()
+  ])
+  
   // Get date of last migration for partial fauna metrics
   const latestMigrationTs = await getMigrationEndTs()
   postgresMetrics.updated = latestMigrationTs
 
-  const spinnerReportedFauna = ora('fetching fauna reported metrics')
-  reportedFaunaMetrics = await fetchReportedFaunaMetrics()
-  const reportedEndTs = reportedFaunaMetrics.updated
-  spinnerReportedFauna.stopAndPersist()
-
-  // Get diff from Fauna
-  const spinnerDiffFauna = ora('fetching fauna diff metrics')
-  const toMigrateFaunaMetrics = await fetchPartialFaunaMetrics(reportedEndTs, latestMigrationTs)
-  spinnerDiffFauna.stopAndPersist()
+  const [reportedFaunaMetrics, toMigrateFaunaMetrics] = await Promise.all([
+    (async () => {
+      const spinnerReportedFauna = ora('fetching fauna reported metrics')
+      reportedFaunaMetrics = await fetchReportedFaunaMetrics()
+      spinnerReportedFauna.stopAndPersist()
+      return reportedFaunaMetrics
+    })(),
+    (async () => {
+      // Get diff from Fauna
+      const spinnerDiffFauna = ora('fetching fauna diff metrics')
+      const toMigrateFaunaMetrics = await fetchPartialFaunaMetrics(reportedEndTs, latestMigrationTs)
+      spinnerDiffFauna.stopAndPersist()
+      return toMigrateFaunaMetrics
+    })()
+  ])
 
   const diff = {
     users: reportedFaunaMetrics.data.users - (postgresMetrics.data.users + toMigrateFaunaMetrics.data.users),
@@ -176,7 +193,143 @@ async function fetchReportedFaunaMetrics () {
   }
 }
 
-const faunaMetricsIds = ['users_total_v2', 'content_total', 'uploads_total_v2', 'pins_total', 'content_bytes_total_v2']
+async function updateMetrics () {
+  const faunaKey = getFaunaKey()
+  const client = new faunadb.Client({ secret: faunaKey })
+
+  await Promise.all([
+    updateMetric(client, 'users_total_v2', COUNT_USERS, {}, 'countUsers'),
+    updateMetric(client, 'uploads_total_v2', COUNT_UPLOADS, {}, 'countUploads'),
+    updateMetric(client, 'content_total', COUNT_CIDS, {}, 'countContent'),
+    updateMetric(client, 'content_bytes_total_v2', SUM_CONTENT_DAG_SIZE, {}, 'sumContentDagSize'),
+    updateMetric(client, 'pins_total_v2', COUNT_PINS, {}, 'countPins')
+  ])
+}
+
+/**
+ * @param {import('@web3-storage/db').DBClient} db
+ * @param {string} key
+ * @param {typeof gql} query
+ * @param {any} vars
+ * @param {string} dataProp
+ */
+async function updateMetric (db, key, query, vars, dataProp) {
+  const to = new Date(Date.now() - 1000)
+  console.log(`🦴 Fetching current metric "${key}"...`)
+
+  const metric = await getMetric(db, key)
+  console.log(`ℹ️ Updating "${key}" metric from ${metric.updated} to ${to.toISOString()}`)
+
+  vars = { ...vars, from: metric.updated, to: to.toISOString() }
+  const total = await sumPaginate(db, query, vars, dataProp, total => {
+    if (total) console.log(`➕ Incrementing "${key}" to ${metric.value + total}`)
+  })
+
+  if (!total) {
+    return console.log(`🙅 "${key}" did not change value (${metric.value})`)
+  }
+
+  console.log(`💾 Saving new value for "${key}": ${metric.value + total}`)
+  await db.query(CREATE_OR_UPDATE_METRIC, { data: { key, value: metric.value + total, updated: to.toISOString() } })
+}
+
+/**
+ * @param {import('@web3-storage/db').DBClient} db
+ * @param {string} key
+ */
+async function getMetric (db, key) {
+  const { findMetricByKey } = await retry(() => db.query(FIND_METRIC, { key }))
+  return findMetricByKey || { key, value: 0, updated: EPOCH }
+}
+
+/**
+ * @param {import('@web3-storage/db').DBClient} db
+ * @param {typeof gql} query
+ * @param {any} vars
+ * @param {string} dataProp
+ */
+async function sumPaginate (db, query, vars, dataProp, onPage) {
+  let after
+  let total = 0
+  while (true) {
+    const res = await retry(() => db.query(query, { after, ...vars }), { onFailedAttempt: console.error })
+    const data = res[dataProp]
+    total += data.data[0] || 0
+    onPage(total)
+    after = data.after
+    if (!after) break
+  }
+  return total
+}
+
+const CREATE_OR_UPDATE_METRIC = gql`
+  mutation CreateOrUpdateMetric($data: CreateOrUpdateMetricInput!) {
+    createOrUpdateMetric(data: $data) {
+      key
+      value
+      updated
+    }
+  }
+`
+
+const FIND_METRIC = gql`
+  query FindMetric($key: String!) {
+    findMetricByKey(key: $key) {
+      key
+      value
+      updated
+    }
+  }
+`
+
+const SUM_CONTENT_DAG_SIZE = gql`
+  query SumContentDagSize($from: Time!, $to: Time!, $after: String) {
+    sumContentDagSize(from: $from, to: $to, _size: 25000, _cursor: $after) {
+      data
+      after
+    }
+  }
+`
+
+const EPOCH = '2021-07-01T00:00:00.000Z'
+
+const COUNT_USERS = gql`
+  query CountUsers($from: Time!, $to: Time!, $after: String) {
+    countUsers(from: $from, to: $to, _size: 80000, _cursor: $after) {
+      data,
+      after
+    }
+  }
+`
+
+const COUNT_UPLOADS = gql`
+  query CountUploads($from: Time!, $to: Time!, $after: String) {
+    countUploads(from: $from, to: $to, _size: 80000, _cursor: $after) {
+      data,
+      after
+    }
+  }
+`
+
+const COUNT_CIDS = gql`
+  query countContent($from: Time!, $to: Time!, $after: String) {
+    countContent(from: $from, to: $to, _size: 80000, _cursor: $after) {
+      data,
+      after
+    }
+  }
+`
+
+const COUNT_PINS = gql`
+  query CountPins($from: Time!, $to: Time!, $after: String) {
+    countPins(from: $from, to: $to, _size: 80000, _cursor: $after) {
+      data,
+      after
+    }
+  }
+`
+
+const faunaMetricsIds = ['users_total_v2', 'content_total', 'uploads_total_v2', 'pins_total_v2', 'content_bytes_total_v2']
 
 const getCountQuery = (table, endTs) => ({
   text: `
