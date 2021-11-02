@@ -13,7 +13,7 @@ export async function validateCmd (opts = {}) {
   const startTs = opts['start-ts'] ? new Date(opts['start-ts']).toISOString() :
     new Date(2010, 1, 1).toISOString()
 
-  let [postgresMetrics] = await Promise.all([
+  let [postgresMetrics, reportedFaunaMetrics] = await Promise.all([
     (async () => {
       const spinnerPostgres = ora('fetching postgres metrics')
       const postgresMetrics = await fetchPostgresMetrics(new Date().toISOString(), startTs)
@@ -22,22 +22,20 @@ export async function validateCmd (opts = {}) {
     })(),
     (async () => {
       const spinnerUpdateMetrics = ora('updating fauna metrics')
-      await updateMetrics()
+      const reportedFaunaMetrics = await updateMetrics()
       spinnerUpdateMetrics.stopAndPersist()
+      return reportedFaunaMetrics
     })()
   ])
   
   // Get date of last migration for partial fauna metrics
   const latestMigrationTs = await getMigrationEndTs()
   postgresMetrics.updated = latestMigrationTs
-
-  const spinnerReportedFauna = ora('fetching fauna reported metrics')
-  const reportedFaunaMetrics = await fetchReportedFaunaMetrics()
   const reportedEndTs = reportedFaunaMetrics.updated
-  spinnerReportedFauna.stopAndPersist()
-
+  
   // Get diff from Fauna
   const spinnerDiffFauna = ora('fetching fauna diff metrics')
+  console.log('reported end ts', reportedEndTs)
   const toMigrateFaunaMetrics = await fetchPartialFaunaMetrics(reportedEndTs, latestMigrationTs)
   spinnerDiffFauna.stopAndPersist()
 
@@ -160,23 +158,58 @@ async function getPartialMetrics (client, query, endTs, startTs) {
   return total
 }
 
-async function fetchReportedFaunaMetrics () {
+// async function fetchReportedFaunaMetrics () {
+//   const faunaKey = getFaunaKey()
+//   const endpoint = 'https://graphql.fauna.com/graphql'
+//   const client = new GraphQLClient(endpoint, {
+//     headers: { Authorization: `Bearer ${faunaKey}` }
+//   })
+
+//   const [
+//     users,
+//     uplods,
+//     cids,
+//     pins,
+//     contentBytes
+//   ] = await Promise.all(faunaMetricsIds.map(id => getMetric(client, id)))
+
+//   return {
+//     // All will have same ts, this is a cron job computation
+//     updated: cids.updated,
+//     data: {
+//       users: users.value,
+//       cids: cids.value,
+//       uploads: uplods.value,
+//       pins: pins.value,
+//       contentBytes: contentBytes.value
+//     }
+//   }
+// }
+
+async function updateMetrics () {
   const faunaKey = getFaunaKey()
-  const client = new faunadb.Client({ secret: faunaKey })
+  const endpoint = 'https://graphql.fauna.com/graphql'
+  const client = new GraphQLClient(endpoint, {
+    headers: { Authorization: `Bearer ${faunaKey}` }
+  })
 
   const [
-    { data: users },
-    { data: uplods },
-    { data: cids },
-    { data: pins },
-    { data: contentBytes }
-  ] = await Promise.all(faunaMetricsIds.map(id => client.query(
-    q.Call(q.Ref('functions/findMetricByKey'), id)
-  )))
+    users,
+    uplods,
+    cids,
+    pins,
+    contentBytes
+  ] = await Promise.all([
+    updateMetric(client, 'users_total_v2', COUNT_USERS, {}, 'countUsers'),
+    updateMetric(client, 'uploads_total_v2', COUNT_UPLOADS, {}, 'countUploads'),
+    updateMetric(client, 'content_total', COUNT_CIDS, {}, 'countContent'),
+    updateMetric(client, 'pins_total_v2', COUNT_PINS, {}, 'countPins'),
+    updateMetric(client, 'content_bytes_total_v2', SUM_CONTENT_DAG_SIZE, {}, 'sumContentDagSize')
+  ])
 
   return {
     // All will have same ts, this is a cron job computation
-    updated: users.updated.value,
+    updated: cids.updated,
     data: {
       users: users.value,
       cids: cids.value,
@@ -187,22 +220,6 @@ async function fetchReportedFaunaMetrics () {
   }
 }
 
-async function updateMetrics () {
-  const faunaKey = getFaunaKey()
-  const endpoint = 'https://graphql.fauna.com/graphql'
-  const client = new GraphQLClient(endpoint, {
-    headers: { Authorization: `Bearer ${faunaKey}` }
-  })
-
-  await Promise.all([
-    updateMetric(client, 'users_total_v2', COUNT_USERS, {}, 'countUsers'),
-    updateMetric(client, 'uploads_total_v2', COUNT_UPLOADS, {}, 'countUploads'),
-    updateMetric(client, 'content_total', COUNT_CIDS, {}, 'countContent'),
-    updateMetric(client, 'content_bytes_total_v2', SUM_CONTENT_DAG_SIZE, {}, 'sumContentDagSize'),
-    updateMetric(client, 'pins_total_v2', COUNT_PINS, {}, 'countPins')
-  ])
-}
-
 /**
  * @param {import('@web3-storage/db').DBClient} db
  * @param {string} key
@@ -211,7 +228,7 @@ async function updateMetrics () {
  * @param {string} dataProp
  */
 async function updateMetric (db, key, query, vars, dataProp) {
-  const to = new Date(Date.now() - 1000)
+  const to = new Date(Date.now())
   console.log(`🦴 Fetching current metric "${key}"...`)
 
   const metric = await getMetric(db, key)
@@ -223,11 +240,22 @@ async function updateMetric (db, key, query, vars, dataProp) {
   })
 
   if (!total) {
-    return console.log(`🙅 "${key}" did not change value (${metric.value})`)
+    console.log(`🙅 "${key}" did not change value (${metric.value})`)
+    return {
+      value: metric.value,
+      updated: metric.updated
+    }
   }
 
-  console.log(`💾 Saving new value for "${key}": ${metric.value + total}`)
-  await db.request(CREATE_OR_UPDATE_METRIC, { data: { key, value: metric.value + total, updated: to.toISOString() } })
+  const value = metric.value + total
+  const updated = to.toISOString()
+
+  console.log(`💾 Saving new value for "${key}": ${value}`)
+  await db.request(CREATE_OR_UPDATE_METRIC, { data: { key, value, updated } })
+  return {
+    value,
+    updated
+  }
 }
 
 /**
