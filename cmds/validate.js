@@ -1,5 +1,5 @@
 import faunadb from 'faunadb'
-import { gql } from 'graphql-request'
+import { GraphQLClient, gql } from 'graphql-request'
 import retry from 'p-retry'
 import pg from 'pg'
 import ora from 'ora'
@@ -22,7 +22,7 @@ export async function validateCmd (opts = {}) {
     })(),
     (async () => {
       const spinnerUpdateMetrics = ora('updating fauna metrics')
-      // await updateMetrics()
+      await updateMetrics()
       spinnerUpdateMetrics.stopAndPersist()
     })()
   ])
@@ -31,21 +31,15 @@ export async function validateCmd (opts = {}) {
   const latestMigrationTs = await getMigrationEndTs()
   postgresMetrics.updated = latestMigrationTs
 
-  const [reportedFaunaMetrics, toMigrateFaunaMetrics] = await Promise.all([
-    (async () => {
-      const spinnerReportedFauna = ora('fetching fauna reported metrics')
-      reportedFaunaMetrics = await fetchReportedFaunaMetrics()
-      spinnerReportedFauna.stopAndPersist()
-      return reportedFaunaMetrics
-    })(),
-    (async () => {
-      // Get diff from Fauna
-      const spinnerDiffFauna = ora('fetching fauna diff metrics')
-      const toMigrateFaunaMetrics = await fetchPartialFaunaMetrics(reportedEndTs, latestMigrationTs)
-      spinnerDiffFauna.stopAndPersist()
-      return toMigrateFaunaMetrics
-    })()
-  ])
+  const spinnerReportedFauna = ora('fetching fauna reported metrics')
+  const reportedFaunaMetrics = await fetchReportedFaunaMetrics()
+  const reportedEndTs = reportedFaunaMetrics.updated
+  spinnerReportedFauna.stopAndPersist()
+
+  // Get diff from Fauna
+  const spinnerDiffFauna = ora('fetching fauna diff metrics')
+  const toMigrateFaunaMetrics = await fetchPartialFaunaMetrics(reportedEndTs, latestMigrationTs)
+  spinnerDiffFauna.stopAndPersist()
 
   const diff = {
     users: reportedFaunaMetrics.data.users - (postgresMetrics.data.users + toMigrateFaunaMetrics.data.users),
@@ -195,7 +189,10 @@ async function fetchReportedFaunaMetrics () {
 
 async function updateMetrics () {
   const faunaKey = getFaunaKey()
-  const client = new faunadb.Client({ secret: faunaKey })
+  const endpoint = 'https://graphql.fauna.com/graphql'
+  const client = new GraphQLClient(endpoint, {
+    headers: { Authorization: `Bearer ${faunaKey}` }
+  })
 
   await Promise.all([
     updateMetric(client, 'users_total_v2', COUNT_USERS, {}, 'countUsers'),
@@ -230,7 +227,7 @@ async function updateMetric (db, key, query, vars, dataProp) {
   }
 
   console.log(`💾 Saving new value for "${key}": ${metric.value + total}`)
-  await db.query(CREATE_OR_UPDATE_METRIC, { data: { key, value: metric.value + total, updated: to.toISOString() } })
+  await db.request(CREATE_OR_UPDATE_METRIC, { data: { key, value: metric.value + total, updated: to.toISOString() } })
 }
 
 /**
@@ -238,7 +235,7 @@ async function updateMetric (db, key, query, vars, dataProp) {
  * @param {string} key
  */
 async function getMetric (db, key) {
-  const { findMetricByKey } = await retry(() => db.query(FIND_METRIC, { key }))
+  const { findMetricByKey } = await retry(() => db.request(FIND_METRIC, { key }))
   return findMetricByKey || { key, value: 0, updated: EPOCH }
 }
 
@@ -252,7 +249,7 @@ async function sumPaginate (db, query, vars, dataProp, onPage) {
   let after
   let total = 0
   while (true) {
-    const res = await retry(() => db.query(query, { after, ...vars }), { onFailedAttempt: console.error })
+    const res = await retry(() => db.request(query, { after, ...vars }), { onFailedAttempt: console.error })
     const data = res[dataProp]
     total += data.data[0] || 0
     onPage(total)
