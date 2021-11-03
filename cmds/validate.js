@@ -31,27 +31,19 @@ export async function validateCmd (opts = {}) {
   // Get date of last migration for partial fauna metrics
   const latestMigrationTs = await getMigrationEndTs()
   postgresMetrics.updated = latestMigrationTs
-  const reportedEndTs = reportedFaunaMetrics.updated
-  
-  // Get diff from Fauna
-  const spinnerDiffFauna = ora('fetching fauna diff metrics')
-  console.log('reported end ts', reportedEndTs)
-  const toMigrateFaunaMetrics = await fetchPartialFaunaMetrics(reportedEndTs, latestMigrationTs)
-  spinnerDiffFauna.stopAndPersist()
 
   const diff = {
-    users: reportedFaunaMetrics.data.users - (postgresMetrics.data.users + toMigrateFaunaMetrics.data.users),
-    cids: reportedFaunaMetrics.data.cids - (postgresMetrics.data.cids + toMigrateFaunaMetrics.data.cids),
-    uploads: reportedFaunaMetrics.data.uploads - (postgresMetrics.data.uploads + toMigrateFaunaMetrics.data.uploads),
-    pins: reportedFaunaMetrics.data.pins - (postgresMetrics.data.pins + toMigrateFaunaMetrics.data.pins),
-    contentBytes: reportedFaunaMetrics.data.contentBytes - (postgresMetrics.data.contentBytes + toMigrateFaunaMetrics.data.contentBytes)
+    users: reportedFaunaMetrics.data.users - postgresMetrics.data.users,
+    cids: reportedFaunaMetrics.data.cids - postgresMetrics.data.cids,
+    uploads: reportedFaunaMetrics.data.uploads - postgresMetrics.data.uploads,
+    pins: reportedFaunaMetrics.data.pins - postgresMetrics.data.pins,
+    contentBytes: reportedFaunaMetrics.data.contentBytes - postgresMetrics.data.contentBytes
   }
 
   console.log('-------------------------------------------------------------------')
   console.log('Summary')
   console.table([
     { name: 'Fauna previous report', ...reportedFaunaMetrics.data, updated: reportedFaunaMetrics.updated} ,
-    { name: 'Fauna pending migr', ...toMigrateFaunaMetrics.data, updated: toMigrateFaunaMetrics.updated },
     { name: 'Postgres migrated', ...postgresMetrics.data, updated: postgresMetrics.updated },
     { name: 'Difference', ...diff}
   ])
