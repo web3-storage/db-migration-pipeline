@@ -74,8 +74,7 @@ async function main () {
 // Otherwise return really old time
 async function getStartTs (client) {
   const { rows: [{ dump_ended_at }] } = await client.query(`
-    SELECT id, dump_ended_at, MAX(id) FROM migration_tracker
-    GROUP BY id
+    SELECT * FROM migration_tracker WHERE id=(SELECT max(id) FROM migration_tracker)
   `)
 
   return dump_ended_at
