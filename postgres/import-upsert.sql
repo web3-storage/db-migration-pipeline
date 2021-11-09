@@ -51,19 +51,19 @@ ON CONFLICT (id) DO UPDATE SET
   updated_at = excluded.updated_at
 ;
 
-INSERT INTO upload (id, user_id, auth_key_id, content_cid, source_cid, type, name, inserted_at, updated_at, deleted_at)
+INSERT INTO upload AS u (id, user_id, auth_key_id, content_cid, source_cid, type, name, inserted_at, updated_at, deleted_at)
   SELECT id, user_id, auth_key_id, content_cid, source_cid, type, name, inserted_at, updated_at, deleted_at
   FROM upload_imported
 ON CONFLICT (id) DO UPDATE SET
   name = excluded.name,
   updated_at = excluded.updated_at,
   deleted_at = excluded.deleted_at
-;
+WHERE excluded.updated_at > u.updated_at;
 
 INSERT INTO pin_sync_request (id, pin_id, inserted_at)
   SELECT id, pin_id, inserted_at
   FROM pin_sync_request_imported
-ON CONFLICT (id) DO NOTHING;
+ON CONFLICT (id, pin_id) DO NOTHING;
 
 INSERT INTO backup (id, upload_id, url, inserted_at)
   SELECT id, upload_id, url, inserted_at

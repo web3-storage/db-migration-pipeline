@@ -36,8 +36,7 @@ export async function validateCmd (opts = {}) {
     users: reportedFaunaMetrics.data.users - postgresMetrics.data.users,
     cids: reportedFaunaMetrics.data.cids - postgresMetrics.data.cids,
     uploads: reportedFaunaMetrics.data.uploads - postgresMetrics.data.uploads,
-    pins: reportedFaunaMetrics.data.pins - postgresMetrics.data.pins,
-    contentBytes: reportedFaunaMetrics.data.contentBytes - postgresMetrics.data.contentBytes
+    pins: reportedFaunaMetrics.data.pins - postgresMetrics.data.pins
   }
 
   console.log('-------------------------------------------------------------------')
@@ -68,14 +67,12 @@ async function fetchPostgresMetrics (endTs, startTs) {
     { rows: [{ count: users }] },
     { rows: [{ count: cids }] },
     { rows: [{ count: uploads }] },
-    { rows: [{ count: pins }] },
-    { rows: [{ sum: contentBytes }] }
+    { rows: [{ count: pins }] }
   ] = await Promise.all([
     client.query(getCountQuery('user', endTs)),
     client.query(getCountQuery('content', endTs)),
     client.query(getCountQuery('upload', endTs)),
-    client.query(getCountQuery('pin', endTs)),
-    client.query(getSumQuery('content', 'dag_size', endTs))
+    client.query(getCountQuery('pin', endTs))
   ])
 
   await client.end()
@@ -86,8 +83,7 @@ async function fetchPostgresMetrics (endTs, startTs) {
       users: Number(users),
       cids: Number(cids),
       uploads: Number(uploads),
-      pins: Number(pins),
-      contentBytes: Number(contentBytes)
+      pins: Number(pins)
     }
   }
 }
@@ -116,8 +112,8 @@ async function fetchPartialFaunaMetrics (endTs, startTs) {
   const faunaKey = getFaunaKey()
   const client = new faunadb.Client({ secret: faunaKey })
 
-  const countQueries = ['functions/countUsers', 'functions/countContent', 'functions/countUploads', 'functions/countPins', 'functions/sumContentDagSize']
-  const [users, cids, uploads, pins, contentBytes] = await Promise.all([
+  const countQueries = ['functions/countUsers', 'functions/countContent', 'functions/countUploads', 'functions/countPins']
+  const [users, cids, uploads, pins] = await Promise.all([
     ...countQueries.map(query => getPartialMetrics(client, query, endTs, startTs))
   ])
 
@@ -127,8 +123,7 @@ async function fetchPartialFaunaMetrics (endTs, startTs) {
       users,
       cids,
       uploads,
-      pins,
-      contentBytes
+      pins
     }
   }
 }
@@ -161,8 +156,7 @@ async function getPartialMetrics (client, query, endTs, startTs) {
 //     users,
 //     uplods,
 //     cids,
-//     pins,
-//     contentBytes
+//     pins
 //   ] = await Promise.all(faunaMetricsIds.map(id => getMetric(client, id)))
 
 //   return {
@@ -172,8 +166,7 @@ async function getPartialMetrics (client, query, endTs, startTs) {
 //       users: users.value,
 //       cids: cids.value,
 //       uploads: uplods.value,
-//       pins: pins.value,
-//       contentBytes: contentBytes.value
+//       pins: pins.value
 //     }
 //   }
 // }
@@ -189,14 +182,12 @@ async function updateMetrics () {
     users,
     uplods,
     cids,
-    pins,
-    contentBytes
+    pins
   ] = await Promise.all([
     updateMetric(client, 'users_total_v2', COUNT_USERS, {}, 'countUsers'),
     updateMetric(client, 'uploads_total_v2', COUNT_UPLOADS, {}, 'countUploads'),
     updateMetric(client, 'content_total', COUNT_CIDS, {}, 'countContent'),
-    updateMetric(client, 'pins_total_v2', COUNT_PINS, {}, 'countPins'),
-    updateMetric(client, 'content_bytes_total_v2', SUM_CONTENT_DAG_SIZE, {}, 'sumContentDagSize')
+    updateMetric(client, 'pins_total_v2', COUNT_PINS, {}, 'countPins')
   ])
 
   return {
@@ -206,8 +197,7 @@ async function updateMetrics () {
       users: users.value,
       cids: cids.value,
       uploads: uplods.value,
-      pins: pins.value,
-      contentBytes: contentBytes.value
+      pins: pins.value
     }
   }
 }
@@ -299,15 +289,6 @@ const FIND_METRIC = gql`
   }
 `
 
-const SUM_CONTENT_DAG_SIZE = gql`
-  query SumContentDagSize($from: Time!, $to: Time!, $after: String) {
-    sumContentDagSize(from: $from, to: $to, _size: 25000, _cursor: $after) {
-      data
-      after
-    }
-  }
-`
-
 const EPOCH = '2021-07-01T00:00:00.000Z'
 
 const COUNT_USERS = gql`
@@ -346,7 +327,7 @@ const COUNT_PINS = gql`
   }
 `
 
-const faunaMetricsIds = ['users_total_v2', 'content_total', 'uploads_total_v2', 'pins_total_v2', 'content_bytes_total_v2']
+const faunaMetricsIds = ['users_total_v2', 'content_total', 'uploads_total_v2', 'pins_total_v2']
 
 const getCountQuery = (table, endTs) => ({
   text: `
