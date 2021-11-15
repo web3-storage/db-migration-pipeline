@@ -3,6 +3,7 @@ name: Catchup Migration
 on:
   schedule:
     - cron: '*/300 * * * *'
+  workflow_dispatch:
 
 jobs:
   update:
